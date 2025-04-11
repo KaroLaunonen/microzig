@@ -256,7 +256,11 @@ pub fn F(comptime config: UsbConfig) type {
 
             const ep = hardware_endpoint_get_by_address(ep_addr);
 
-            _ = rom.memcpy(ep.data_buffer[0..buffer.len], buffer);
+            if (chip == .RP2040) {
+                @memcpy(ep.data_buffer[0..buffer.len], buffer); // Workaround for crash
+            } else {
+                _ = rom.memcpy(ep.data_buffer[0..buffer.len], buffer);
+            }
 
             // Configure the IN:
             const np: u1 = if (ep.next_pid_1) 1 else 0;
