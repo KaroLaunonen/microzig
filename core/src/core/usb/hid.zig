@@ -416,6 +416,24 @@ pub fn hid_logical_max(comptime n: u2, data: [n]u8) [n + 1]u8 {
     );
 }
 
+pub fn hid_physical_min(comptime n: u2, data: [n]u8) [n + 1]u8 {
+    return hid_report_item(
+        n,
+        @intFromEnum(ReportItemTypes.Global),
+        @intFromEnum(GlobalItem.PhysicalMin),
+        data,
+    );
+}
+
+pub fn hid_physical_max(comptime n: u2, data: [n]u8) [n + 1]u8 {
+    return hid_report_item(
+        n,
+        @intFromEnum(ReportItemTypes.Global),
+        @intFromEnum(GlobalItem.PhysicalMax),
+        data,
+    );
+}
+
 pub fn hid_report_size(comptime n: u2, data: [n]u8) [n + 1]u8 {
     return hid_report_item(
         n,
