@@ -135,7 +135,7 @@ pub fn Usb(comptime f: anytype) type {
             };
         }
 
-        fn device_ready() bool {
+        pub fn device_ready() bool {
             return S.started;
         }
 
@@ -206,11 +206,11 @@ pub fn Usb(comptime f: anytype) type {
                                 .SetAddress => {
                                     S.new_address = @as(u8, @intCast(setup.value & 0xff));
                                     CmdEndpoint.send_cmd_ack();
-                                    if (S.debug_mode) std.log.info("    SetAddress: {}", .{S.new_address.?});
+                                    if (S.debug_mode) std.log.info("    SetAddress: {}", .{ S.new_address.? });
                                 },
                                 .SetConfiguration => {
-                                    if (S.debug_mode) std.log.info("    SetConfiguration", .{});
                                     const cfg_num = setup.value;
+                                    if (S.debug_mode) std.log.info("    SetConfiguration #{}", .{ cfg_num });
                                     if (S.cfg_num != cfg_num) {
                                         if (S.cfg_num > 0) {
                                             configuration_reset();
@@ -229,12 +229,14 @@ pub fn Usb(comptime f: anytype) type {
                                 },
                                 .GetDescriptor => {
                                     const descriptor_type = DescType.from_u8(@intCast(setup.value >> 8));
+                                    if (S.debug_mode) std.log.info("    GetDescriptor {s}", .{ if (descriptor_type) |dt| @tagName(dt) else "" });
                                     if (descriptor_type) |dt| {
                                         try process_get_descriptor(setup, dt);
                                     }
                                 },
                                 .SetFeature => {
                                     const feature = FeatureSelector.from_u8(@intCast(setup.value >> 8));
+                                    if (S.debug_mode) std.log.info("    SetFeature {s}", .{ if (feature) |feat| @tagName(feat) else "" });
                                     if (feature) |feat| {
                                         switch (feat) {
                                             .DeviceRemoteWakeup, .EndpointHalt => CmdEndpoint.send_cmd_ack(),
@@ -422,11 +424,10 @@ pub fn Usb(comptime f: anytype) type {
 
             // Events on one or more buffers? (In practice, always one.)
             if (ints.BuffStatus) {
-                if (debug) std.log.info("buff status", .{});
                 var iter = f.get_EPBIter(usb_config.?);
 
                 while (iter.next(&iter)) |epb| {
-                    if (debug) std.log.info("    data: {any}", .{epb.buffer});
+                    if (debug) std.log.debug("    data: {s}", .{ std.fmt.fmtSliceHexLower(epb.buffer) });
 
                     // Perform any required action on the data. For OUT, the `data`
                     // will be whatever was sent by the host. For IN, it's a copy of
@@ -481,6 +482,8 @@ pub fn Usb(comptime f: anytype) type {
                         else => {
                             const ep_num = Endpoint.num_from_address(epb.endpoint_address);
                             const ep_dir = Endpoint.dir_from_address(epb.endpoint_address).as_number();
+                            if (debug) std.log.debug("    ep {d} dir {s}", .{ ep_num, @tagName(Endpoint.dir_from_address(epb.endpoint_address)) });
+
                             if (get_driver(ep_to_drv[ep_num][ep_dir])) |driver| {
                                 driver.transfer(epb.endpoint_address, epb.buffer);
                             }
