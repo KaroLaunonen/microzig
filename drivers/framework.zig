@@ -44,6 +44,7 @@ pub const led = struct {
 
 pub const sensor = struct {
     pub const TMP117 = @import("sensor/TMP117.zig").TMP117;
+    pub const LSM6DS33 = @import("sensor/lsm6ds33.zig").LSM6DS33;
     pub const ICM_20948 = @import("sensor/ICM-20948.zig").ICM_20948;
     pub const MLX90640 = @import("sensor/MLX90640.zig").MLX90640;
 };
@@ -214,6 +215,7 @@ test {
     _ = input.rotary_encoder;
 
     _ = sensor.TMP117;
+    _ = sensor.LSM6DS33;
     _ = sensor.ICM_20948;
     _ = sensor.MLX90640;
 
