@@ -256,6 +256,7 @@ pub const UsageTable = struct {
     pub const desktop: [1]u8 = "\x01".*;
     pub const keyboard: [1]u8 = "\x07".*;
     pub const led: [1]u8 = "\x08".*;
+    pub const button: [1]u8 = "\x09".*;
     pub const fido: [2]u8 = "\xD0\xF1".*;
     pub const vendor: [2]u8 = "\x00\xFF".*;
 };
