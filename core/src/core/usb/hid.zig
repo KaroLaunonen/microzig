@@ -269,6 +269,10 @@ pub const FidoAllianceUsage = struct {
 
 pub const DesktopUsage = struct {
     pub const keyboard: [1]u8 = "\x06".*;
+    pub const joystick: [1]u8 = "\x04".*;
+    pub const x_axis: [1]u8 = "\x30".*;
+    pub const y_axis: [1]u8 = "\x31".*;
+    pub const z_axis: [1]u8 = "\x32".*;
 };
 
 pub const HID_DATA: u8 = 0 << 0;
