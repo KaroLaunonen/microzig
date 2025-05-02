@@ -429,6 +429,15 @@ pub fn hid_report_count(comptime n: u2, data: [n]u8) [n + 1]u8 {
     );
 }
 
+pub fn hid_report_id(comptime n: u2, data: [n]u8) [n + 1]u8 {
+    return hid_report_item(
+        n,
+        @intFromEnum(ReportItemTypes.Global),
+        @intFromEnum(GlobalItem.ReportId),
+        data
+    );
+}
+
 // Local Items
 // -------------------------------------------------
 
