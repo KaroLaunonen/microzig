@@ -22,19 +22,21 @@ pub const LSM6DS33 = struct {
     var configured_full_scale = accelerator_full_scale.fs_2g;
 
     const register = enum(u8) {
-        int1_ctrl = 0x0D,
-        whoami = 0x0F,
-        ctrl1_xl = 0x10,
-        ctrl2_g = 0x11,
-        ctrl3_c = 0x12,
-        ctrl8_xl = 0x17,
-        ctrl9_xl = 0x18,
-        ctrl10_c = 0x19,
+        int1_ctrl   = 0x0D,
+        whoami      = 0x0F,
+        ctrl1_xl    = 0x10,
+        ctrl2_g     = 0x11,
+        ctrl3_c     = 0x12,
+        ctrl4_c     = 0x13,
+        ctrl6_c     = 0x15,
+        ctrl8_xl    = 0x17,
+        ctrl9_xl    = 0x18,
+        ctrl10_c    = 0x19,
         all_int_src = 0x1A,
-        out_temp = 0x20,
-        outx_l_xl = 0x28,
-        outy_l_xl = 0x2A,
-        outz_l_xl = 0x2C
+        out_temp    = 0x20,
+        outx_l_xl   = 0x28,
+        outy_l_xl   = 0x2A,
+        outz_l_xl   = 0x2C
     };
 
     /// Operating mode
@@ -79,6 +81,40 @@ pub const LSM6DS33 = struct {
         fb_50hz     = 0b11,
     };
 
+    /// High-performance mode disable
+    /// Datasheet 9.16
+    pub const high_performance_mode = enum(u1) {
+        enabled     = 0,
+        disabled    = 1,
+    };
+
+    /// Gyroscope level-sensitive latched enable.
+    /// Datasheet 9.16
+    pub const gyro_level_sensitive_latch = enum(u1) {
+        disabled    = 0,
+        enabled     = 1,
+    };
+
+    /// Gyroscope data level-sensitive trigger enable.
+    /// Datasheet 9.16
+    pub const gyro_level_sensitive_trigger = enum(u1) {
+        disabled    = 0,
+        enabled     = 1,
+    };
+
+    /// Gyroscope data edge-sensitive trigger enable.
+    /// Datasheet 9.16
+    pub const gyro_data_edge_sensitive_trigger = enum(u1) {
+        disabled    = 0,
+        enabled     = 1,
+    };
+
+    /// Accelerometer bandwidth selection.
+    pub const accl_bandwidth_selection = enum(u1) {
+        odr_setting     = 0,
+        bw_xl_setting   = 1,
+    };
+
     /// Linear acceleration sensor control register 1 (r/w)
     /// Datasheet 9.1
     const ctrl1_xl = packed struct {
@@ -90,6 +126,19 @@ pub const LSM6DS33 = struct {
     const ctrl3_c = packed struct {
         sw_reset: bool,
         the_rest: u7
+    };
+
+    const ctrl4_c = packed struct {
+        the_rest: u7,
+        bw_scal_odr: accl_bandwidth_selection,
+    };
+
+    const ctrl6_c = packed struct {
+        reserved: u4,
+        hm_mode: high_performance_mode,
+        lvl2_en: gyro_level_sensitive_latch,
+        lvl_en: gyro_level_sensitive_trigger,
+        trig_en: gyro_data_edge_sensitive_trigger,
     };
 
     pub const acceleration = struct {
@@ -128,24 +177,44 @@ pub const LSM6DS33 = struct {
 
     pub fn set_output_data_rate(self: *const Self, dr: output_data_rate) !void {
         var value: ctrl1_xl = @bitCast(try self.read_raw(register.ctrl1_xl, u8));
+        const temp = value;
 
         value.odr_xl = dr;
+        std.log.debug("set_output_data_rate orig: {b:08} new: {b:08}", .{ @as(u8, @bitCast(temp)), @as(u8, @bitCast(value)) });
         try self.dev.write(&([2]u8 { @intFromEnum(register.ctrl1_xl), @as(u8, @bitCast(value)) }));
     }
 
     pub fn set_accelerator_full_scale(self: *const Self, fs: accelerator_full_scale) !void {
         var value: ctrl1_xl = @bitCast(try self.read_raw(register.ctrl1_xl, u8));
+        const temp = value;
 
         value.fs_xl = fs;
+        std.log.debug("set_accl_full_scale orig: {b:08} new: {b:08}", .{ @as(u8, @bitCast(temp)), @as(u8, @bitCast(value)) });
         try self.dev.write(&([2]u8 { @intFromEnum(register.ctrl1_xl), @as(u8, @bitCast(value)) }));
         configured_full_scale = fs;
     }
 
     pub fn set_anti_aliasing_filter_bandwidth(self: *const Self, bw: anti_aliasing_filter_bandwidth) !void {
+        // Enable bw_xl selection
+        var bw_sel: ctrl4_c = @bitCast(try self.read_raw(register.ctrl4_c, u8));
+        bw_sel.bw_scal_odr = .bw_xl_setting;
+        try self.dev.write(&([2]u8 { @intFromEnum(register.ctrl4_c), @as(u8, @bitCast(bw_sel)) }));
+
         var value: ctrl1_xl = @bitCast(try self.read_raw(register.ctrl1_xl, u8));
+        const temp = value;
 
         value.bw_xl = bw;
+        std.log.debug("set_anti_aliasing_filter_bw orig: {b:08} new: {b:08}", .{ @as(u8, @bitCast(temp)), @as(u8, @bitCast(value)) });
         try self.dev.write(&([2]u8 { @intFromEnum(register.ctrl1_xl), @as(u8, @bitCast(value)) }));
+    }
+
+    pub fn set_high_performance_mode(self: *const Self, hpm: high_performance_mode) !void {
+        var value: ctrl6_c = @bitCast(try self.read_raw(register.ctrl6_c, u8));
+        const temp = value;
+
+        value.hm_mode = hpm;
+        std.log.debug("set_high_performance_mode orig: {b:08} new: {b:08}", .{ @as(u8, @bitCast(temp)), @as(u8, @bitCast(value)) });
+        try self.dev.write(&([2]u8 { @intFromEnum(register.ctrl6_c), @as(u8, @bitCast(value)) }));
     }
 
     pub fn read_temperature(self: *const Self) !f16 {
