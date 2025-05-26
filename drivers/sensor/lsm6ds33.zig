@@ -245,9 +245,9 @@ pub const LSM6DS33 = struct {
         }
 
         const acc: acceleration = .{
-            .x = @as(f16, @floatFromInt(std.mem.readVarInt(i16, buf[0..2], .big))) * mg_per_lsb(configured_full_scale) / 1000.0,
-            .y = @as(f16, @floatFromInt(std.mem.readVarInt(i16, buf[2..4], .big))) * mg_per_lsb(configured_full_scale) / 1000.0,
-            .z = @as(f16, @floatFromInt(std.mem.readVarInt(i16, buf[4..6], .big))) * mg_per_lsb(configured_full_scale) / 1000.0,
+            .x = @as(f16, @floatFromInt(std.mem.readVarInt(i16, buf[0..2], .little))) * mg_per_lsb(configured_full_scale) / 1000.0,
+            .y = @as(f16, @floatFromInt(std.mem.readVarInt(i16, buf[2..4], .little))) * mg_per_lsb(configured_full_scale) / 1000.0,
+            .z = @as(f16, @floatFromInt(std.mem.readVarInt(i16, buf[4..6], .little))) * mg_per_lsb(configured_full_scale) / 1000.0,
         };
 
         return acc;
@@ -266,9 +266,9 @@ pub const LSM6DS33 = struct {
 
         var acc: [3]i16 = undefined;
 
-        acc[0] = std.mem.readVarInt(i16, buf[0..2], .big);
-        acc[1] = std.mem.readVarInt(i16, buf[2..4], .big);
-        acc[2] = std.mem.readVarInt(i16, buf[4..6], .big);
+        acc[0] = std.mem.readVarInt(i16, buf[0..2], .little);
+        acc[1] = std.mem.readVarInt(i16, buf[2..4], .little);
+        acc[2] = std.mem.readVarInt(i16, buf[4..6], .little);
 
         return acc;
     }
@@ -291,12 +291,6 @@ pub const LSM6DS33 = struct {
         if (size != @sizeOf(T))
             return error.ReadError;
 
-        return std.mem.readInt(T, &buf, .big);
-    }
-
-    inline fn write_raw(self: *const Self, reg: Self.register, v: u16) !void {
-        return self.dev.write(
-            &([1]u8{@intFromEnum(reg)} ++ @as([2]u8, @bitCast(std.mem.nativeToBig(u16, v)))),
-        );
+        return std.mem.readInt(T, &buf, .little);
     }
 };
