@@ -125,6 +125,10 @@ pub fn Usb(comptime f: anytype) type {
             }
         }
 
+        pub fn ack_device_disconnected() void {
+            f.ack_device_disconnected();
+        }
+
         fn device() types.UsbDevice {
             return .{
                 .fn_ready = device_ready,
@@ -206,11 +210,11 @@ pub fn Usb(comptime f: anytype) type {
                                 .SetAddress => {
                                     S.new_address = @as(u8, @intCast(setup.value & 0xff));
                                     CmdEndpoint.send_cmd_ack();
-                                    if (S.debug_mode) std.log.info("    SetAddress: {}", .{ S.new_address.? });
+                                    if (S.debug_mode) std.log.info("    SetAddress: {}", .{S.new_address.?});
                                 },
                                 .SetConfiguration => {
                                     const cfg_num = setup.value;
-                                    if (S.debug_mode) std.log.info("    SetConfiguration #{}", .{ cfg_num });
+                                    if (S.debug_mode) std.log.info("    SetConfiguration #{}", .{cfg_num});
                                     if (S.cfg_num != cfg_num) {
                                         if (S.cfg_num > 0) {
                                             configuration_reset();
@@ -229,14 +233,14 @@ pub fn Usb(comptime f: anytype) type {
                                 },
                                 .GetDescriptor => {
                                     const descriptor_type = DescType.from_u8(@intCast(setup.value >> 8));
-                                    if (S.debug_mode) std.log.info("    GetDescriptor {s}", .{ if (descriptor_type) |dt| @tagName(dt) else "" });
+                                    if (S.debug_mode) std.log.info("    GetDescriptor {s}", .{if (descriptor_type) |dt| @tagName(dt) else ""});
                                     if (descriptor_type) |dt| {
                                         try process_get_descriptor(setup, dt);
                                     }
                                 },
                                 .SetFeature => {
                                     const feature = FeatureSelector.from_u8(@intCast(setup.value >> 8));
-                                    if (S.debug_mode) std.log.info("    SetFeature {s}", .{ if (feature) |feat| @tagName(feat) else "" });
+                                    if (S.debug_mode) std.log.info("    SetFeature {s}", .{if (feature) |feat| @tagName(feat) else ""});
                                     if (feature) |feat| {
                                         switch (feat) {
                                             .DeviceRemoteWakeup, .EndpointHalt => CmdEndpoint.send_cmd_ack(),
@@ -254,7 +258,7 @@ pub fn Usb(comptime f: anytype) type {
                 fn process_get_descriptor(setup: *const types.SetupPacket, descriptor_type: DescType) !void {
                     switch (descriptor_type) {
                         .Device => {
-                            if (S.debug_mode) std.log.info("        Device", .{});
+                            if (S.debug_mode) std.log.info("        Device\n   {s}", .{std.fmt.fmtSliceHexUpper(&usb_config.?.device_descriptor.serialize())});
 
                             var bw = BufferWriter{ .buffer = &S.tmp };
                             try bw.write(&usb_config.?.device_descriptor.serialize());
@@ -262,7 +266,9 @@ pub fn Usb(comptime f: anytype) type {
                             CmdEndpoint.send_cmd_response(bw.get_written_slice(), setup.length);
                         },
                         .Config => {
-                            if (S.debug_mode) std.log.info("        Config", .{});
+                            if (S.debug_mode) std.log.info("        Config\n   {s}", .{
+                                std.fmt.fmtSliceHexUpper(usb_config.?.config_descriptor),
+                            });
 
                             var bw = BufferWriter{ .buffer = &S.tmp };
                             try bw.write(usb_config.?.config_descriptor);
@@ -270,10 +276,10 @@ pub fn Usb(comptime f: anytype) type {
                             CmdEndpoint.send_cmd_response(bw.get_written_slice(), setup.length);
                         },
                         .String => {
-                            if (S.debug_mode) std.log.info("        String", .{});
+                            const i: usize = @intCast(setup.value & 0xff);
+                            if (S.debug_mode) std.log.info("        String #{d}\n   {s}", .{ i, if (i == 0) "lang" else usb_config.?.descriptor_strings[i - 1] });
                             // String descriptor index is in bottom 8 bits of
                             // `value`.
-                            const i: usize = @intCast(setup.value & 0xff);
                             const bytes = StringBlk: {
                                 if (i == 0) {
                                     // Special index 0 requests the language
@@ -296,10 +302,12 @@ pub fn Usb(comptime f: anytype) type {
                             CmdEndpoint.send_cmd_response(bytes, setup.length);
                         },
                         .Interface => {
-                            if (S.debug_mode) std.log.info("        Interface", .{});
+                            const interface_num = @as(u8, @truncate(setup.index));
+                            if (S.debug_mode) std.log.info("        Interface #{d}", .{interface_num});
                         },
                         .Endpoint => {
-                            if (S.debug_mode) std.log.info("        Endpoint", .{});
+                            const endpoint = @as(u8, @truncate(setup.index));
+                            if (S.debug_mode) std.log.info("        Endpoint #{d}", .{endpoint});
                         },
                         .DeviceQualifier => {
                             if (S.debug_mode) std.log.info("        DeviceQualifier", .{});
@@ -324,6 +332,8 @@ pub fn Usb(comptime f: anytype) type {
                 }
 
                 fn process_set_config(_: u16) !void {
+                    std.log.debug("process_set_config", .{});
+
                     // TODO: we support just one config for now so ignore config index
                     const bos_cfg = usb_config.?.config_descriptor;
 
@@ -331,6 +341,7 @@ pub fn Usb(comptime f: anytype) type {
                     var curr_drv_idx: u8 = 0;
 
                     if (BosConfig.try_get_desc_as(types.ConfigurationDescriptor, curr_bos_cfg)) |_| {
+                        std.log.debug("   * ConfigurationDescriptor", .{});
                         curr_bos_cfg = BosConfig.get_desc_next(curr_bos_cfg);
                     } else {
                         // TODO - error
@@ -363,7 +374,7 @@ pub fn Usb(comptime f: anytype) type {
                         curr_bos_cfg = curr_bos_cfg[drv_cfg_len..];
 
                         // TODO: TMP solution - just 1 driver so quit while loop
-                        return;
+                        // return;
                     }
                 }
 
@@ -384,12 +395,14 @@ pub fn Usb(comptime f: anytype) type {
             const InterfaceRequestProcessor = struct {
                 fn process_setup_request(setup: *const types.SetupPacket) !void {
                     const itf: u8 = @intCast(setup.index & 0xFF);
+                    std.log.debug("itf request #{d}", .{itf});
                     var driver = get_driver(itf_to_drv[itf]);
-                    if (driver == null) return;
+                    if (driver == null) unreachable;
                     S.driver = driver;
 
                     if (driver.?.class_control(.Setup, setup) == false) {
-                        // TODO
+                        std.log.debug("failed to handle interface request", .{});
+                        unreachable;
                     }
                 }
             };
@@ -427,7 +440,7 @@ pub fn Usb(comptime f: anytype) type {
                 var iter = f.get_EPBIter(usb_config.?);
 
                 while (iter.next(&iter)) |epb| {
-                    if (debug) std.log.debug("    data: {s}", .{ std.fmt.fmtSliceHexLower(epb.buffer) });
+                    if (debug) std.log.debug("    data: {s}", .{std.fmt.fmtSliceHexLower(epb.buffer)});
 
                     // Perform any required action on the data. For OUT, the `data`
                     // will be whatever was sent by the host. For IN, it's a copy of

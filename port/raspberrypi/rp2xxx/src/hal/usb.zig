@@ -146,23 +146,42 @@ pub fn F(comptime config: UsbConfig) type {
             //
             // Configure it:
             //
+
+            // ORIGINAL
+
+            // // RFDIV = 1
+            // // FBDIV = 100 => FOUTVC0 = 1200 MHz
+            // peripherals.PLL_USB.CS.modify(.{ .REFDIV = 1 });
+            // peripherals.PLL_USB.FBDIV_INT.modify(.{ .FBDIV_INT = 100 });
+            // peripherals.PLL_USB.PWR.modify(.{ .PD = 0, .VCOPD = 0 });
+            // // Wait for lock
+            // while (peripherals.PLL_USB.CS.read().LOCK == 0) {}
+            // // Set up post dividers to enable output
+            // //
+            // // POSTDIV1 = POSTDIV2 = 5
+            // // PLL_USB FOUT = 1200 MHz / 25 = 48 MHz
+            // peripherals.PLL_USB.PRIM.modify(.{ .POSTDIV1 = 5, .POSTDIV2 = 5 });
+            // peripherals.PLL_USB.PWR.modify(.{ .POSTDIVPD = 0 });
+            // // Switch usbclk to be derived from PLLUSB
+            // peripherals.CLOCKS.CLK_USB_CTRL.modify(.{ .AUXSRC = .clksrc_pll_usb });
+
             // RFDIV = 1
-            // FBDIV = 100 => FOUTVC0 = 1200 MHz
+            // FBDIV = 36 => FOUTVC0 = 432 MHz
             peripherals.PLL_USB.CS.modify(.{ .REFDIV = 1 });
-            peripherals.PLL_USB.FBDIV_INT.modify(.{ .FBDIV_INT = 100 });
+            peripherals.PLL_USB.FBDIV_INT.modify(.{ .FBDIV_INT = 36 });
             peripherals.PLL_USB.PWR.modify(.{ .PD = 0, .VCOPD = 0 });
             // Wait for lock
             while (peripherals.PLL_USB.CS.read().LOCK == 0) {}
             // Set up post dividers to enable output
             //
             // POSTDIV1 = POSTDIV2 = 5
-            // PLL_USB FOUT = 1200 MHz / 25 = 48 MHz
-            peripherals.PLL_USB.PRIM.modify(.{ .POSTDIV1 = 5, .POSTDIV2 = 5 });
+            // PLL_USB FOUT = 432 MHz / 3 / 3 = 48 MHz
+            peripherals.PLL_USB.PRIM.modify(.{ .POSTDIV1 = 3, .POSTDIV2 = 3 });
             peripherals.PLL_USB.PWR.modify(.{ .POSTDIVPD = 0 });
             // Switch usbclk to be derived from PLLUSB
             peripherals.CLOCKS.CLK_USB_CTRL.modify(.{ .AUXSRC = .clksrc_pll_usb });
 
-            // We now have the stable 48MHz reference clock required for USB:
+            // We now have the stable 48MHz reference clock required for USB
         }
 
         pub fn usb_init_device(_: *usb.DeviceConfiguration) void {
