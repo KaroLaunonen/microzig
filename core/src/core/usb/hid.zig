@@ -430,12 +430,7 @@ pub fn hid_report_count(comptime n: u2, data: [n]u8) [n + 1]u8 {
 }
 
 pub fn hid_report_id(comptime n: u2, data: [n]u8) [n + 1]u8 {
-    return hid_report_item(
-        n,
-        @intFromEnum(ReportItemTypes.Global),
-        @intFromEnum(GlobalItem.ReportId),
-        data
-    );
+    return hid_report_item(n, @intFromEnum(ReportItemTypes.Global), @intFromEnum(GlobalItem.ReportId), data);
 }
 
 // Local Items
@@ -601,24 +596,28 @@ pub const HidClassDriver = struct {
     fn class_control(ptr: *anyopaque, stage: types.ControlStage, setup: *const types.SetupPacket) bool {
         var self: *HidClassDriver = @ptrCast(@alignCast(ptr));
 
+        _ = stage;
+
         switch (setup.request_type.type) {
             .Standard => {
-                if (stage == .Setup) {
-                    const hid_desc_type = HidDescType.from_u8(@intCast((setup.value >> 8) & 0xff));
-                    const request_code = types.SetupRequest.from_u8(setup.request);
+                // if (stage == .Setup) {
+                const hid_desc_type = HidDescType.from_u8(@intCast((setup.value >> 8) & 0xff));
+                const request_code = types.SetupRequest.from_u8(setup.request);
 
-                    if (hid_desc_type == null or request_code == null) {
-                        return false;
-                    }
-
-                    if (request_code.? == .GetDescriptor and hid_desc_type == .Hid) {
-                        self.device.?.control_transfer(setup, self.hid_descriptor);
-                    } else if (request_code.? == .GetDescriptor and hid_desc_type == .Report) {
-                        self.device.?.control_transfer(setup, self.report_descriptor);
-                    } else {
-                        return false;
-                    }
+                if (hid_desc_type == null or request_code == null) {
+                    return false;
                 }
+
+                if (request_code.? == .GetDescriptor and hid_desc_type == .Hid) {
+                    std.log.debug("Get HID descriptor\n   {s}", .{std.fmt.fmtSliceHexUpper(self.hid_descriptor)});
+                    self.device.?.control_transfer(setup, self.hid_descriptor);
+                } else if (request_code.? == .GetDescriptor and hid_desc_type == .Report) {
+                    std.log.debug("Get HID report\n   {s}", .{std.fmt.fmtSliceHexUpper(self.report_descriptor)});
+                    self.device.?.control_transfer(setup, self.report_descriptor);
+                } else {
+                    return false;
+                }
+                //}
             },
             .Class => {
                 const hid_request_type = HidRequestType.from_u8(setup.request);
@@ -626,7 +625,8 @@ pub const HidClassDriver = struct {
 
                 switch (hid_request_type.?) {
                     .SetIdle => {
-                        if (stage == .Setup) {
+                        // if (stage == .Setup) {
+                            std.log.debug("SetIdle request, value: {}", .{setup.value});
                             // TODO: The host is attempting to limit bandwidth by requesting that
                             // the device only return report data when its values actually change,
                             // or when the specified duration elapses. In practice, the device can
@@ -635,10 +635,11 @@ pub const HidClassDriver = struct {
                             //
                             // https://github.com/ZigEmbeddedGroup/microzig/issues/454
                             self.device.?.control_ack(setup);
-                        }
+                        // }
                     },
                     .SetProtocol => {
-                        if (stage == .Setup) {
+                        // if (stage == .Setup) {
+                            std.log.debug("SetProtocol request, value: {}", .{setup.value});
                             // TODO: The device should switch the format of its reports from the
                             // boot keyboard/mouse protocol to the format described in its report descriptor,
                             // or vice versa.
@@ -650,17 +651,18 @@ pub const HidClassDriver = struct {
                             //
                             // https://github.com/ZigEmbeddedGroup/microzig/issues/454
                             self.device.?.control_ack(setup);
-                        }
+                        // }
                     },
                     .SetReport => {
-                        if (stage == .Setup) {
+                        // if (stage == .Setup) {
+                            std.log.debug("SetReport request, value: {}", .{setup.value});
                             // TODO: This request sends a feature or output report to the device,
                             // e.g. turning on the caps lock LED. This must be handled in an
                             // application-specific way, so notify the application code of the event.
                             //
                             // https://github.com/ZigEmbeddedGroup/microzig/issues/454
                             self.device.?.control_ack(setup);
-                        }
+                        // }
                     },
                     else => {
                         return false;
