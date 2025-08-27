@@ -860,6 +860,7 @@ pub fn MicroBuild(port_select: PortSelect) type {
 pub inline fn custom_lazy_import(
     comptime dep_name: []const u8,
 ) ?type {
+    @setEvalBranchQuota(3_000);
     const build_runner = @import("root");
     const deps = build_runner.dependencies;
     const pkg_hash = custom_find_import_pkg_hash_or_fatal(dep_name);
