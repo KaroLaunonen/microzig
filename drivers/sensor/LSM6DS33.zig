@@ -11,7 +11,8 @@ const std = @import("std");
 const mdf = @import("../framework.zig");
 
 pub const LSM6DS33 = struct {
-    dev: mdf.base.Datagram_Device,
+    dev: mdf.base.I2C_Device,
+    address: mdf.base.I2C_Device.Address,
     debug: bool,
 
     const Self = @This();
@@ -82,6 +83,16 @@ pub const LSM6DS33 = struct {
         fs_16g  = 0b01,
         fs_4g   = 0b10,
         fs_8g   = 0b11,
+
+        /// Returns milli Gs per LSB for given full scale
+        inline fn mg_per_lsb(fs: accelerator_full_scale) f16 {
+            return switch (fs) {
+                .fs_2g => 0.061,
+                .fs_4g => 0.122,
+                .fs_8g => 0.244,
+                .fs_16g => 0.488,
+            };
+        }
     };
 
     /// Anti-aliasing filter bandwidth
@@ -159,11 +170,11 @@ pub const LSM6DS33 = struct {
         z: f16,
     };
 
-    pub fn init(dev: mdf.base.Datagram_Device, debug: bool) Error!Self {
-        var self = Self{ .dev = dev, .debug = debug, };
+    pub fn init(dev: mdf.base.I2C_Device, address: mdf.base.I2C_Device.Address, debug: bool) Error!Self {
+        var self = Self{ .dev = dev, .address = address, .debug = debug, };
 
         var chip_id: [1]u8 = undefined;
-        self.dev.write_then_read(&[_]u8{ @intFromEnum(register.whoami) }, &chip_id) catch |err| {
+        self.dev.write_then_read(address, &[_]u8{ @intFromEnum(register.whoami) }, &chip_id) catch |err| {
             std.log.err("failed to read whoami register: {}", .{ err });
             return Error.DeviceNotFound;
         };
@@ -184,7 +195,7 @@ pub const LSM6DS33 = struct {
         var value: ctrl3_c = @bitCast(raw_value);
 
         value.sw_reset = true;
-        self.dev.write(&([2]u8 { @intFromEnum(register.ctrl3_c), @bitCast(value) })) catch |err| {
+        self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl3_c), @bitCast(value) })) catch |err| {
             std.log.err("failed to write ctrl3_c: {}", .{ err });
             return Error.WriteError;
         };
@@ -210,7 +221,7 @@ pub const LSM6DS33 = struct {
 
         value.odr_xl = dr;
         std.log.debug("set_output_data_rate orig: {b:08} new: {b:08}", .{ @as(u8, @bitCast(temp)), @as(u8, @bitCast(value)) });
-        self.dev.write(&([2]u8 { @intFromEnum(register.ctrl1_xl), @bitCast(value) })) catch {
+        self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl1_xl), @bitCast(value) })) catch {
             return Error.WriteError;
         };
     }
@@ -225,7 +236,7 @@ pub const LSM6DS33 = struct {
 
         value.fs_xl = fs;
         std.log.debug("set_accl_full_scale orig: {b:08} new: {b:08}", .{ @as(u8, @bitCast(temp)), @as(u8, @bitCast(value)) });
-        self.dev.write(&([2]u8 { @intFromEnum(register.ctrl1_xl), @bitCast(value) })) catch {
+        self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl1_xl), @bitCast(value) })) catch {
             return Error.WriteError;
         };
         configured_full_scale = fs;
@@ -239,7 +250,7 @@ pub const LSM6DS33 = struct {
 
         var bw_sel: ctrl4_c = @bitCast(raw_value);
         bw_sel.bw_scal_odr = .bw_xl_setting;
-        self.dev.write(&([2]u8 { @intFromEnum(register.ctrl4_c), @bitCast(bw_sel) })) catch {
+        self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl4_c), @bitCast(bw_sel) })) catch {
             return Error.WriteError;
         };
 
@@ -252,7 +263,7 @@ pub const LSM6DS33 = struct {
 
         value.bw_xl = bw;
         std.log.debug("set_anti_aliasing_filter_bw orig: {b:08} new: {b:08}", .{ @as(u8, @bitCast(temp)), @as(u8, @bitCast(value)) });
-        self.dev.write(&([2]u8 { @intFromEnum(register.ctrl1_xl), @as(u8, @bitCast(value)) })) catch {
+        self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl1_xl), @as(u8, @bitCast(value)) })) catch {
             return Error.WriteError;
         };
     }
@@ -267,14 +278,14 @@ pub const LSM6DS33 = struct {
 
         value.hm_mode = hpm;
         std.log.debug("set_high_performance_mode orig: {b:08} new: {b:08}", .{ @as(u8, @bitCast(temp)), @as(u8, @bitCast(value)) });
-        self.dev.write(&([2]u8 { @intFromEnum(register.ctrl6_c), @as(u8, @bitCast(value)) })) catch {
+        self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl6_c), @as(u8, @bitCast(value)) })) catch {
             return Error.WriteError;
         };
     }
 
     pub fn read_temperature(self: *const Self) Error!f16 {
         var buf: [2]u8 = undefined;
-        self.dev.write_then_read(&[_]u8 { @intFromEnum(register.out_temp) }, &buf) catch |err| return switch(err) {
+        self.dev.write_then_read(self.address, &[_]u8 { @intFromEnum(register.out_temp) }, &buf) catch |err| return switch(err) {
             .ReadError => Error.ReadError,
             .WriteError => Error.WriteError,
         };
@@ -289,15 +300,15 @@ pub const LSM6DS33 = struct {
 
     pub fn read_acceleration(self: *const Self) Error!acceleration {
         var buf: [6]u8 = undefined;
-        self.dev.write_then_read(&[_]u8 { @intFromEnum(register.outx_l_xl) }, &buf) catch |err| return switch(err) {
+        self.dev.write_then_read(self.address, &[_]u8 { @intFromEnum(register.outx_l_xl) }, &buf) catch |err| return switch(err) {
             .ReadError => Error.ReadError,
             .WriteError => Error.WriteError,
         };
 
         const acc: acceleration = .{
-            .x = @as(f16, @floatFromInt(std.mem.readVarInt(i16, buf[0..2], .little))) * mg_per_lsb(configured_full_scale) / 1000.0,
-            .y = @as(f16, @floatFromInt(std.mem.readVarInt(i16, buf[2..4], .little))) * mg_per_lsb(configured_full_scale) / 1000.0,
-            .z = @as(f16, @floatFromInt(std.mem.readVarInt(i16, buf[4..6], .little))) * mg_per_lsb(configured_full_scale) / 1000.0,
+            .x = @as(f16, @floatFromInt(std.mem.readVarInt(i16, buf[0..2], .little))) * configured_full_scale.mg_per_lsb() / 1000.0,
+            .y = @as(f16, @floatFromInt(std.mem.readVarInt(i16, buf[2..4], .little))) * configured_full_scale.mg_per_lsb() / 1000.0,
+            .z = @as(f16, @floatFromInt(std.mem.readVarInt(i16, buf[4..6], .little))) * configured_full_scale.mg_per_lsb() / 1000.0,
         };
 
         return acc;
@@ -306,7 +317,7 @@ pub const LSM6DS33 = struct {
     pub fn read_raw_acceleration(self: *const Self) Error![3]i16 {
         // Read consequtive x, y, z acceleration values
         var buf: [6]u8 = undefined;
-        self.dev.write_then_read(&[_]u8 { @intFromEnum(register.outx_l_xl) }, &buf) catch |err| {
+        self.dev.write_then_read(self.address, &[_]u8 { @intFromEnum(register.outx_l_xl) }, &buf) catch |err| {
             std.log.err("failed to read outx_l_xl: {}", .{ err });
             return Error.ReadError;
         };
@@ -320,20 +331,10 @@ pub const LSM6DS33 = struct {
         return acc;
     }
 
-    /// Returns milli Gs per LSB for given full scale
-    inline fn mg_per_lsb(fs: accelerator_full_scale) f16 {
-        return switch (fs) {
-            .fs_2g => 0.061,
-            .fs_4g => 0.122,
-            .fs_8g => 0.244,
-            .fs_16g => 0.488,
-        };
-    }
-
     inline fn read_raw(self: *const Self, reg: Self.register, T: type) !T {
-        try self.dev.write(&[_]u8{ @intFromEnum(reg) });
+        try self.dev.write(self.address, &[_]u8{ @intFromEnum(reg) });
         var buf: [@sizeOf(T)]u8 = undefined;
-        const size = try self.dev.read(&buf);
+        const size = try self.dev.read(self.address, &buf);
 
         if (size != @sizeOf(T))
             return error.ReadError;
