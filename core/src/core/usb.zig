@@ -258,7 +258,7 @@ pub fn Usb(comptime f: anytype) type {
                 fn process_get_descriptor(setup: *const types.SetupPacket, descriptor_type: DescType) !void {
                     switch (descriptor_type) {
                         .Device => {
-                            if (S.debug_mode) std.log.info("        Device\n   {s}", .{std.fmt.fmtSliceHexUpper(&usb_config.?.device_descriptor.serialize())});
+                            if (S.debug_mode) std.log.info("        Device\n   {X}", .{&usb_config.?.device_descriptor.serialize()});
 
                             var bw = BufferWriter{ .buffer = &S.tmp };
                             try bw.write(&usb_config.?.device_descriptor.serialize());
@@ -266,9 +266,7 @@ pub fn Usb(comptime f: anytype) type {
                             CmdEndpoint.send_cmd_response(bw.get_written_slice(), setup.length);
                         },
                         .Config => {
-                            if (S.debug_mode) std.log.info("        Config\n   {s}", .{
-                                std.fmt.fmtSliceHexUpper(usb_config.?.config_descriptor),
-                            });
+                            if (S.debug_mode) std.log.info("        Config\n   {X}", .{usb_config.?.config_descriptor});
 
                             var bw = BufferWriter{ .buffer = &S.tmp };
                             try bw.write(usb_config.?.config_descriptor);
@@ -440,7 +438,7 @@ pub fn Usb(comptime f: anytype) type {
                 var iter = f.get_EPBIter(usb_config.?);
 
                 while (iter.next(&iter)) |epb| {
-                    if (debug) std.log.debug("    data: {s}", .{std.fmt.fmtSliceHexLower(epb.buffer)});
+                    if (debug) std.log.debug("    data: {X}", .{epb.buffer});
 
                     // Perform any required action on the data. For OUT, the `data`
                     // will be whatever was sent by the host. For IN, it's a copy of
