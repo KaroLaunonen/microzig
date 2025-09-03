@@ -609,10 +609,10 @@ pub const HidClassDriver = struct {
                 }
 
                 if (request_code.? == .GetDescriptor and hid_desc_type == .Hid) {
-                    std.log.debug("Get HID descriptor\n   {s}", .{std.fmt.fmtSliceHexUpper(self.hid_descriptor)});
+                    std.log.debug("Get HID descriptor\n   {X}", .{self.hid_descriptor});
                     self.device.?.control_transfer(setup, self.hid_descriptor);
                 } else if (request_code.? == .GetDescriptor and hid_desc_type == .Report) {
-                    std.log.debug("Get HID report\n   {s}", .{std.fmt.fmtSliceHexUpper(self.report_descriptor)});
+                    std.log.debug("Get HID report\n   {X}", .{self.report_descriptor});
                     self.device.?.control_transfer(setup, self.report_descriptor);
                 } else {
                     return false;
