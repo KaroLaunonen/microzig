@@ -1,8 +1,6 @@
 //!
 //! I²C driver for ST LSM6DS33 motion sensor.
 //!
-//! Driver adapted from adafruit-lsm6ds
-//!
 //! Datasheet:
 //!     https://www.mouser.com/datasheet/2/389/lsm6ds33-1849769.pdf
 //!
@@ -22,17 +20,10 @@ pub const LSM6DS33 = struct {
     // The chip defaults to 2g
     var configured_full_scale = accelerator_full_scale.fs_2g;
 
-    pub const Error = error{
-        // Device identification errors
-        DeviceNotFound,
-        UnexpectedDeviceId,
-
-        // Communication errors
-        ReadError,
-        WriteError,
-
-        InvalidParameter,
-    };
+    pub const Error = mdf.base.I2C_Device.Error;
+    pub const RawError = Error || error { ReadError, };
+    pub const InterfaceError = mdf.base.I2C_Device.InterfaceError;
+    pub const InitError = InterfaceError || error { UnexpectedId, };
 
     const register = enum(u8) {
         int1_ctrl   = 0x0D,
@@ -170,17 +161,16 @@ pub const LSM6DS33 = struct {
         z: f16,
     };
 
-    pub fn init(dev: mdf.base.I2C_Device, address: mdf.base.I2C_Device.Address, debug: bool) Error!Self {
+    pub fn init(dev: mdf.base.I2C_Device, address: mdf.base.I2C_Device.Address, debug: bool) InitError!Self {
         var self = Self{ .dev = dev, .address = address, .debug = debug, };
 
-        var chip_id: [1]u8 = undefined;
-        self.dev.write_then_read(address, &[_]u8{ @intFromEnum(register.whoami) }, &chip_id) catch |err| {
+        const chip_id = self.read_byte(.whoami) catch |err| {
             std.log.err("failed to read whoami register: {}", .{ err });
-            return Error.DeviceNotFound;
+            return err;
         };
 
-        if (chip_id[0] != CHIP_ID) {
-            if (self.debug) std.log.debug("Chip id not valid: {}", .{ chip_id[0] });
+        if (chip_id != CHIP_ID) {
+            if (self.debug) std.log.debug("Chip id not valid: {x}", .{ chip_id });
             return Error.UnexpectedDeviceId;
         }
 
@@ -188,99 +178,111 @@ pub const LSM6DS33 = struct {
     }
 
     pub fn reset(self: *const Self) Error!void {
-        var raw_value = self.read_raw(register.ctrl3_c, u8) catch |err| {
-            std.log.err("failed to read ctrl3_c: {}", .{ err });
-            return Error.ReadError;
-        };
-        var value: ctrl3_c = @bitCast(raw_value);
-
-        value.sw_reset = true;
-        self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl3_c), @bitCast(value) })) catch |err| {
-            std.log.err("failed to write ctrl3_c: {}", .{ err });
-            return Error.WriteError;
-        };
+        // var raw_value = self.read_raw(register.ctrl3_c, u8) catch |err| {
+        //     std.log.err("failed to read ctrl3_c: {}", .{ err });
+        //     return Error.ReadError;
+        // };
+        // var value: ctrl3_c = @bitCast(raw_value);
+        //
+        // value.sw_reset = true;
+        // self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl3_c), @bitCast(value) })) catch |err| {
+        //     std.log.err("failed to write ctrl3_c: {}", .{ err });
+        //     return Error.WriteError;
+        // };
+        self.modify_reg(register.ctrl3_c, u8, .{
+            .sw_reset = true,
+        });
 
         if (self.debug) std.log.debug("resetting lsm6ds33\r\n", .{});
+        var value: ctrl3_c = self.read_raw(register.ctrl3_c, ctrl3_c);
         while (value.sw_reset) {
-            raw_value = self.read_raw(register.ctrl3_c, u8) catch {
+            value = self.read_raw(register.ctrl3_c, ctrl3_c) catch {
                 return Error.ReadError;
             };
-
-            value = @bitCast(raw_value);
         }
         if (self.debug) std.log.debug("lsm6ds33 reset done\r\n", .{});
     }
 
     pub fn set_output_data_rate(self: *const Self, dr: output_data_rate) Error!void {
-        const raw_value = self.read_raw(register.ctrl1_xl, u8) catch {
-            return Error.ReadError;
-        };
-
-        var value: ctrl1_xl = @bitCast(raw_value);
-        const temp = value;
-
-        value.odr_xl = dr;
-        std.log.debug("set_output_data_rate orig: {b:08} new: {b:08}", .{ @as(u8, @bitCast(temp)), @as(u8, @bitCast(value)) });
-        self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl1_xl), @bitCast(value) })) catch {
-            return Error.WriteError;
-        };
+        // const raw_value = self.read_raw(register.ctrl1_xl, u8) catch {
+        //     return Error.ReadError;
+        // };
+        //
+        // var value: ctrl1_xl = @bitCast(raw_value);
+        // const temp = value;
+        //
+        // value.odr_xl = dr;
+        // self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl1_xl), @bitCast(value) })) catch {
+        //     return Error.WriteError;
+        // };
+        self.modify_reg(register.ctrl1_xl, ctrl1_xl, .{
+            .odr_xl = dr,
+        });
     }
 
     pub fn set_accelerator_full_scale(self: *const Self, fs: accelerator_full_scale) Error!void {
-        const raw_value = self.read_raw(register.ctrl1_xl, u8) catch {
-            return Error.ReadError;
-        };
-
-        var value: ctrl1_xl = @bitCast(raw_value);
-        const temp = value;
-
-        value.fs_xl = fs;
-        std.log.debug("set_accl_full_scale orig: {b:08} new: {b:08}", .{ @as(u8, @bitCast(temp)), @as(u8, @bitCast(value)) });
-        self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl1_xl), @bitCast(value) })) catch {
-            return Error.WriteError;
-        };
+        // const raw_value = self.read_raw(register.ctrl1_xl, u8) catch {
+        //     return Error.ReadError;
+        // };
+        //
+        // var value: ctrl1_xl = @bitCast(raw_value);
+        // const temp = value;
+        //
+        // value.fs_xl = fs;
+        // std.log.debug("set_accl_full_scale orig: {b:08} new: {b:08}", .{ @as(u8, @bitCast(temp)), @as(u8, @bitCast(value)) });
+        // self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl1_xl), @bitCast(value) })) catch {
+        //     return Error.WriteError;
+        // };
+        self.modify_reg(register.ctrl1_xl, ctrl1_xl, .{
+            .fs_xl = fs,
+        });
         configured_full_scale = fs;
     }
 
     pub fn set_anti_aliasing_filter_bandwidth(self: *const Self, bw: anti_aliasing_filter_bandwidth) Error!void {
         // Enable bw_xl selection
-        var raw_value = self.read_raw(register.ctrl4_c, u8) catch {
-            return Error.ReadError;
-        };
+        // var raw_value = self.read_raw(register.ctrl4_c, u8) catch {
+        //     return Error.ReadError;
+        // };
+        //
+        // var bw_sel: ctrl4_c = @bitCast(raw_value);
+        // bw_sel.bw_scal_odr = .bw_xl_setting;
+        // self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl4_c), @bitCast(bw_sel) })) catch {
+        //     return Error.WriteError;
+        // };
+        //
+        // raw_value = self.read_raw(register.ctrl1_xl, u8) catch {
+        //     return Error.ReadError;
+        // };
+        //
+        // var value: ctrl1_xl = @bitCast(raw_value);
+        // const temp = value;
+        //
+        // value.bw_xl = bw;
+        // std.log.debug("set_anti_aliasing_filter_bw orig: {b:08} new: {b:08}", .{ @as(u8, @bitCast(temp)), @as(u8, @bitCast(value)) });
+        // self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl1_xl), @as(u8, @bitCast(value)) })) catch {
+        //     return Error.WriteError;
+        // };
 
-        var bw_sel: ctrl4_c = @bitCast(raw_value);
-        bw_sel.bw_scal_odr = .bw_xl_setting;
-        self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl4_c), @bitCast(bw_sel) })) catch {
-            return Error.WriteError;
-        };
+        // Enable bw_xl selection
+        self.modify_reg(register.ctrl4_c, ctrl4_c, .{
+            .bw_scal_odr = .bw_xl_setting,
+        });
 
-        raw_value = self.read_raw(register.ctrl1_xl, u8) catch {
-            return Error.ReadError;
-        };
-
-        var value: ctrl1_xl = @bitCast(raw_value);
-        const temp = value;
-
-        value.bw_xl = bw;
-        std.log.debug("set_anti_aliasing_filter_bw orig: {b:08} new: {b:08}", .{ @as(u8, @bitCast(temp)), @as(u8, @bitCast(value)) });
-        self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl1_xl), @as(u8, @bitCast(value)) })) catch {
-            return Error.WriteError;
-        };
+        self.modify_reg(register.ctrl1_xl, ctrl1_xl, .{
+            .bw_xl = bw,
+        });
     }
 
     pub fn set_high_performance_mode(self: *const Self, hpm: high_performance_mode) Error!void {
-        const raw_value = self.read_raw(register.ctrl6_c, u8) catch {
-            return Error.ReadError;
-        };
+        const raw_value = try self.read_raw(register.ctrl6_c, u8);
 
         var value: ctrl6_c = @bitCast(raw_value);
         const temp = value;
 
         value.hm_mode = hpm;
         std.log.debug("set_high_performance_mode orig: {b:08} new: {b:08}", .{ @as(u8, @bitCast(temp)), @as(u8, @bitCast(value)) });
-        self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl6_c), @as(u8, @bitCast(value)) })) catch {
-            return Error.WriteError;
-        };
+        try self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl6_c), @as(u8, @bitCast(value)) }));
     }
 
     pub fn read_temperature(self: *const Self) Error!f16 {
@@ -314,12 +316,12 @@ pub const LSM6DS33 = struct {
         return acc;
     }
 
-    pub fn read_raw_acceleration(self: *const Self) Error![3]i16 {
+    pub fn read_raw_acceleration(self: *const Self) RawError![3]i16 {
         // Read consequtive x, y, z acceleration values
         var buf: [6]u8 = undefined;
         self.dev.write_then_read(self.address, &[_]u8 { @intFromEnum(register.outx_l_xl) }, &buf) catch |err| {
             std.log.err("failed to read outx_l_xl: {}", .{ err });
-            return Error.ReadError;
+            return RawError.ReadError;
         };
 
         var acc: [3]i16 = undefined;
@@ -331,14 +333,34 @@ pub const LSM6DS33 = struct {
         return acc;
     }
 
-    inline fn read_raw(self: *const Self, reg: Self.register, T: type) !T {
+    inline fn read_raw(self: *const Self, reg: Self.register, T: type) RawError!T {
         try self.dev.write(self.address, &[_]u8{ @intFromEnum(reg) });
         var buf: [@sizeOf(T)]u8 = undefined;
         const size = try self.dev.read(self.address, &buf);
 
         if (size != @sizeOf(T))
-            return error.ReadError;
+            return RawError.ReadError;
 
         return std.mem.readInt(T, &buf, .little);
     }
+
+    inline fn read_byte(self: *const Self, reg: Self.register) InterfaceError!u8 {
+        var buf: u8 = 0;
+
+        try self.dev.write_then_read(self.address, &[_]u8{ @intFromEnum(reg) }, (&buf)[0..1]);
+
+        return buf;
+    }
+
+    inline fn modify_reg(self: *const Self, reg: Self.register, T: type, fields: anytype) Error!void {
+        const current_val = try self.read_reg(reg, T);
+
+        var val: T = @bitCast(current_val);
+        inline for (@typeInfo(@TypeOf(fields)).@"struct".fields) |field| {
+            @field(val, field.name) = @field(fields, field.name);
+        }
+
+        try self.write_byte(reg, @bitCast(val));
+    }
+
 };
