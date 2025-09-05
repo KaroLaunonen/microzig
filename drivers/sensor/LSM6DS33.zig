@@ -21,9 +21,9 @@ pub const LSM6DS33 = struct {
     var configured_full_scale = accelerator_full_scale.fs_2g;
 
     pub const Error = mdf.base.I2C_Device.Error;
-    pub const RawError = Error || error { ReadError, };
     pub const InterfaceError = mdf.base.I2C_Device.InterfaceError;
-    pub const InitError = InterfaceError || error { UnexpectedId, };
+    pub const RawError = InterfaceError || error { ReadError, };
+    pub const InitError = InterfaceError || error { UnexpectedDDeviceId, };
 
     const register = enum(u8) {
         int1_ctrl   = 0x0D,
@@ -171,110 +171,50 @@ pub const LSM6DS33 = struct {
 
         if (chip_id != CHIP_ID) {
             if (self.debug) std.log.debug("Chip id not valid: {x}", .{ chip_id });
-            return Error.UnexpectedDeviceId;
+            return InitError.UnexpectedDDeviceId;
         }
 
         return self;
     }
 
-    pub fn reset(self: *const Self) Error!void {
-        // var raw_value = self.read_raw(register.ctrl3_c, u8) catch |err| {
-        //     std.log.err("failed to read ctrl3_c: {}", .{ err });
-        //     return Error.ReadError;
-        // };
-        // var value: ctrl3_c = @bitCast(raw_value);
-        //
-        // value.sw_reset = true;
-        // self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl3_c), @bitCast(value) })) catch |err| {
-        //     std.log.err("failed to write ctrl3_c: {}", .{ err });
-        //     return Error.WriteError;
-        // };
-        self.modify_reg(register.ctrl3_c, u8, .{
+    pub fn reset(self: *const Self) RawError!void {
+        try self.modify_reg(register.ctrl3_c, ctrl3_c, .{
             .sw_reset = true,
         });
 
         if (self.debug) std.log.debug("resetting lsm6ds33\r\n", .{});
-        var value: ctrl3_c = self.read_raw(register.ctrl3_c, ctrl3_c);
+        var value: ctrl3_c = try self.read_raw(register.ctrl3_c, ctrl3_c);
         while (value.sw_reset) {
-            value = self.read_raw(register.ctrl3_c, ctrl3_c) catch {
-                return Error.ReadError;
-            };
+            value = try self.read_raw(register.ctrl3_c, ctrl3_c);
         }
         if (self.debug) std.log.debug("lsm6ds33 reset done\r\n", .{});
     }
 
-    pub fn set_output_data_rate(self: *const Self, dr: output_data_rate) Error!void {
-        // const raw_value = self.read_raw(register.ctrl1_xl, u8) catch {
-        //     return Error.ReadError;
-        // };
-        //
-        // var value: ctrl1_xl = @bitCast(raw_value);
-        // const temp = value;
-        //
-        // value.odr_xl = dr;
-        // self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl1_xl), @bitCast(value) })) catch {
-        //     return Error.WriteError;
-        // };
-        self.modify_reg(register.ctrl1_xl, ctrl1_xl, .{
+    pub fn set_output_data_rate(self: *const Self, dr: output_data_rate) RawError!void {
+        try self.modify_reg(register.ctrl1_xl, ctrl1_xl, .{
             .odr_xl = dr,
         });
     }
 
-    pub fn set_accelerator_full_scale(self: *const Self, fs: accelerator_full_scale) Error!void {
-        // const raw_value = self.read_raw(register.ctrl1_xl, u8) catch {
-        //     return Error.ReadError;
-        // };
-        //
-        // var value: ctrl1_xl = @bitCast(raw_value);
-        // const temp = value;
-        //
-        // value.fs_xl = fs;
-        // std.log.debug("set_accl_full_scale orig: {b:08} new: {b:08}", .{ @as(u8, @bitCast(temp)), @as(u8, @bitCast(value)) });
-        // self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl1_xl), @bitCast(value) })) catch {
-        //     return Error.WriteError;
-        // };
-        self.modify_reg(register.ctrl1_xl, ctrl1_xl, .{
+    pub fn set_accelerator_full_scale(self: *const Self, fs: accelerator_full_scale) RawError!void {
+        try self.modify_reg(register.ctrl1_xl, ctrl1_xl, .{
             .fs_xl = fs,
         });
         configured_full_scale = fs;
     }
 
-    pub fn set_anti_aliasing_filter_bandwidth(self: *const Self, bw: anti_aliasing_filter_bandwidth) Error!void {
+    pub fn set_anti_aliasing_filter_bandwidth(self: *const Self, bw: anti_aliasing_filter_bandwidth) RawError!void {
         // Enable bw_xl selection
-        // var raw_value = self.read_raw(register.ctrl4_c, u8) catch {
-        //     return Error.ReadError;
-        // };
-        //
-        // var bw_sel: ctrl4_c = @bitCast(raw_value);
-        // bw_sel.bw_scal_odr = .bw_xl_setting;
-        // self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl4_c), @bitCast(bw_sel) })) catch {
-        //     return Error.WriteError;
-        // };
-        //
-        // raw_value = self.read_raw(register.ctrl1_xl, u8) catch {
-        //     return Error.ReadError;
-        // };
-        //
-        // var value: ctrl1_xl = @bitCast(raw_value);
-        // const temp = value;
-        //
-        // value.bw_xl = bw;
-        // std.log.debug("set_anti_aliasing_filter_bw orig: {b:08} new: {b:08}", .{ @as(u8, @bitCast(temp)), @as(u8, @bitCast(value)) });
-        // self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl1_xl), @as(u8, @bitCast(value)) })) catch {
-        //     return Error.WriteError;
-        // };
-
-        // Enable bw_xl selection
-        self.modify_reg(register.ctrl4_c, ctrl4_c, .{
+        try self.modify_reg(register.ctrl4_c, ctrl4_c, .{
             .bw_scal_odr = .bw_xl_setting,
         });
 
-        self.modify_reg(register.ctrl1_xl, ctrl1_xl, .{
+        try self.modify_reg(register.ctrl1_xl, ctrl1_xl, .{
             .bw_xl = bw,
         });
     }
 
-    pub fn set_high_performance_mode(self: *const Self, hpm: high_performance_mode) Error!void {
+    pub fn set_high_performance_mode(self: *const Self, hpm: high_performance_mode) RawError!void {
         const raw_value = try self.read_raw(register.ctrl6_c, u8);
 
         var value: ctrl6_c = @bitCast(raw_value);
@@ -333,15 +273,8 @@ pub const LSM6DS33 = struct {
         return acc;
     }
 
-    inline fn read_raw(self: *const Self, reg: Self.register, T: type) RawError!T {
-        try self.dev.write(self.address, &[_]u8{ @intFromEnum(reg) });
-        var buf: [@sizeOf(T)]u8 = undefined;
-        const size = try self.dev.read(self.address, &buf);
-
-        if (size != @sizeOf(T))
-            return RawError.ReadError;
-
-        return std.mem.readInt(T, &buf, .little);
+    fn read_raw(self: *const Self, reg: Self.register, comptime T: type) RawError!T {
+        return @bitCast(try self.read_byte(reg));
     }
 
     inline fn read_byte(self: *const Self, reg: Self.register) InterfaceError!u8 {
@@ -352,7 +285,15 @@ pub const LSM6DS33 = struct {
         return buf;
     }
 
-    inline fn modify_reg(self: *const Self, reg: Self.register, T: type, fields: anytype) Error!void {
+    fn write_byte(self: *const Self, reg: Self.register, value: u8) RawError!void {
+        try self.dev.write(self.address, &.{ @intFromEnum(reg), value });
+    }
+
+    inline fn read_reg(self: *const Self, reg: Self.register, T: type) RawError!T {
+        return @bitCast(try self.read_byte(reg));
+    }
+
+    inline fn modify_reg(self: *const Self, reg: Self.register, T: type, fields: anytype) RawError!void {
         const current_val = try self.read_reg(reg, T);
 
         var val: T = @bitCast(current_val);
@@ -362,5 +303,4 @@ pub const LSM6DS33 = struct {
 
         try self.write_byte(reg, @bitCast(val));
     }
-
 };
