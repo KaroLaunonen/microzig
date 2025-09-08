@@ -8,6 +8,8 @@
 const std = @import("std");
 const mdf = @import("../framework.zig");
 
+const sensor_log = std.log.scoped(.lsm6ds33);
+
 pub const LSM6DS33 = struct {
     dev: mdf.base.I2C_Device,
     address: mdf.base.I2C_Device.Address,
@@ -137,16 +139,23 @@ pub const LSM6DS33 = struct {
         odr_xl: output_data_rate,
     };
 
+    /// Control register 3 (r/w)
+    /// Datasheet 9.13
     const ctrl3_c = packed struct {
         sw_reset: bool,
-        the_rest: u7,
+        _the_rest: u7,
     };
 
+
+    /// Control register 4 (r/w)
+    /// Datasheet 9.14
     const ctrl4_c = packed struct {
-        the_rest: u7,
+        _the_rest: u7,
         bw_scal_odr: accl_bandwidth_selection,
     };
 
+    /// Angular rate sensor control register 6 (r/w)
+    /// Datasheet 9.16
     const ctrl6_c = packed struct {
         reserved: u4,
         hm_mode: high_performance_mode,
@@ -165,12 +174,12 @@ pub const LSM6DS33 = struct {
         var self = Self{ .dev = dev, .address = address, .debug = debug, };
 
         const chip_id = self.read_byte(.whoami) catch |err| {
-            std.log.err("failed to read whoami register: {}", .{ err });
+            sensor_log.err("failed to read whoami register: {}", .{ err });
             return err;
         };
 
         if (chip_id != CHIP_ID) {
-            if (self.debug) std.log.debug("Chip id not valid: {x}", .{ chip_id });
+            if (self.debug) sensor_log.debug("Chip id not valid: {x}", .{ chip_id });
             return InitError.UnexpectedDDeviceId;
         }
 
@@ -182,12 +191,12 @@ pub const LSM6DS33 = struct {
             .sw_reset = true,
         });
 
-        if (self.debug) std.log.debug("resetting lsm6ds33\r\n", .{});
+        if (self.debug) sensor_log.debug("resetting lsm6ds33\r\n", .{});
         var value: ctrl3_c = try self.read_raw(register.ctrl3_c, ctrl3_c);
         while (value.sw_reset) {
             value = try self.read_raw(register.ctrl3_c, ctrl3_c);
         }
-        if (self.debug) std.log.debug("lsm6ds33 reset done\r\n", .{});
+        if (self.debug) sensor_log.debug("lsm6ds33 reset done\r\n", .{});
     }
 
     pub fn set_output_data_rate(self: *const Self, dr: output_data_rate) RawError!void {
@@ -221,20 +230,17 @@ pub const LSM6DS33 = struct {
         const temp = value;
 
         value.hm_mode = hpm;
-        std.log.debug("set_high_performance_mode orig: {b:08} new: {b:08}", .{ @as(u8, @bitCast(temp)), @as(u8, @bitCast(value)) });
+        sensor_log.debug("set_high_performance_mode orig: {b:08} new: {b:08}", .{ @as(u8, @bitCast(temp)), @as(u8, @bitCast(value)) });
         try self.dev.write(self.address, &([2]u8 { @intFromEnum(register.ctrl6_c), @as(u8, @bitCast(value)) }));
     }
 
     pub fn read_temperature(self: *const Self) Error!f16 {
         var buf: [2]u8 = undefined;
-        self.dev.write_then_read(self.address, &[_]u8 { @intFromEnum(register.out_temp) }, &buf) catch |err| return switch(err) {
-            .ReadError => Error.ReadError,
-            .WriteError => Error.WriteError,
-        };
+        try self.dev.write_then_read(self.address, &[_]u8 { @intFromEnum(register.out_temp) }, &buf);
 
         const temp_raw = std.mem.readVarInt(i16, buf[0..2], .little);
 
-        if (self.debug) std.log.debug("temp raw: {x:4}", .{ temp_raw });
+        if (self.debug) sensor_log.debug("temp raw: {x:4}", .{ temp_raw });
 
         // Datasheet says 16 LSB/℃, but we need 256?!
         return @as(f16, @floatFromInt(temp_raw)) / 256.0 + 25.0;
@@ -242,10 +248,7 @@ pub const LSM6DS33 = struct {
 
     pub fn read_acceleration(self: *const Self) Error!acceleration {
         var buf: [6]u8 = undefined;
-        self.dev.write_then_read(self.address, &[_]u8 { @intFromEnum(register.outx_l_xl) }, &buf) catch |err| return switch(err) {
-            .ReadError => Error.ReadError,
-            .WriteError => Error.WriteError,
-        };
+        try self.dev.write_then_read(self.address, &[_]u8 { @intFromEnum(register.outx_l_xl) }, &buf);
 
         const acc: acceleration = .{
             .x = @as(f16, @floatFromInt(std.mem.readVarInt(i16, buf[0..2], .little))) * configured_full_scale.mg_per_lsb() / 1000.0,
@@ -257,12 +260,9 @@ pub const LSM6DS33 = struct {
     }
 
     pub fn read_raw_acceleration(self: *const Self) RawError![3]i16 {
-        // Read consequtive x, y, z acceleration values
+        // Read consecutive x, y, z acceleration values
         var buf: [6]u8 = undefined;
-        self.dev.write_then_read(self.address, &[_]u8 { @intFromEnum(register.outx_l_xl) }, &buf) catch |err| {
-            std.log.err("failed to read outx_l_xl: {}", .{ err });
-            return RawError.ReadError;
-        };
+        try self.dev.write_then_read(self.address, &[_]u8 { @intFromEnum(register.outx_l_xl) }, &buf);
 
         var acc: [3]i16 = undefined;
 
