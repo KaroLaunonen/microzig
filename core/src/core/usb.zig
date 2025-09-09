@@ -44,8 +44,8 @@ const BosConfig = utils.BosConfig;
 /// * `get_setup_packet() SetupPacket` - Return the USB setup packet received (called if SetupReq received). Make sure to clear the status flag yourself!
 /// * `bus_reset() void` - Called on a bus reset interrupt
 /// * `set_address(addr: u7) void` - Set the given address
-/// * `get_EPBIter(*const DeviceConfiguration) EPBIter` - Return an endpoint buffer iterator. Each call to next returns an unhandeled endpoint buffer with data. How next is implemented depends on the system.
-/// The functions must be grouped under the same name space and passed to the fuction at compile time.
+/// * `get_EPBIter(*const DeviceConfiguration) EPBIter` - Return an endpoint buffer iterator. Each call to next returns an unhandled endpoint buffer with data. How next is implemented depends on the system.
+/// The functions must be grouped under the same name space and passed to the function at compile time.
 /// The functions will be accessible to the user through the `callbacks` field.
 pub fn Usb(comptime f: anytype) type {
     return struct {
@@ -135,7 +135,8 @@ pub fn Usb(comptime f: anytype) type {
             };
         }
 
-        fn device_ready() bool {
+        /// Returns flag indicating if USB device is ready to send and receive messages
+        pub fn device_ready() bool {
             return S.started;
         }
 
@@ -209,8 +210,8 @@ pub fn Usb(comptime f: anytype) type {
                                     if (S.debug_mode) std.log.info("    SetAddress: {}", .{S.new_address.?});
                                 },
                                 .SetConfiguration => {
-                                    if (S.debug_mode) std.log.info("    SetConfiguration", .{});
                                     const cfg_num = setup.value;
+                                    if (S.debug_mode) std.log.info("    SetConfiguration #{}", .{cfg_num});
                                     if (S.cfg_num != cfg_num) {
                                         if (S.cfg_num > 0) {
                                             configuration_reset();
@@ -229,12 +230,14 @@ pub fn Usb(comptime f: anytype) type {
                                 },
                                 .GetDescriptor => {
                                     const descriptor_type = DescType.from_u8(@intCast(setup.value >> 8));
+                                    if (S.debug_mode) std.log.info("    GetDescriptor: {s}", .{if (descriptor_type) |dt| @tagName(dt) else ""});
                                     if (descriptor_type) |dt| {
                                         try process_get_descriptor(setup, dt);
                                     }
                                 },
                                 .SetFeature => {
                                     const feature = FeatureSelector.from_u8(@intCast(setup.value >> 8));
+                                    if (S.debug_mode) std.log.info("    SetFeature: {s}", .{if (feature) |feat| @tagName(feat) else ""});
                                     if (feature) |feat| {
                                         switch (feat) {
                                             .DeviceRemoteWakeup, .EndpointHalt => CmdEndpoint.send_cmd_ack(),
@@ -252,7 +255,7 @@ pub fn Usb(comptime f: anytype) type {
                 fn process_get_descriptor(setup: *const types.SetupPacket, descriptor_type: DescType) !void {
                     switch (descriptor_type) {
                         .Device => {
-                            if (S.debug_mode) std.log.info("        Device", .{});
+                            if (S.debug_mode) std.log.info("        Device desc: {X}", .{&usb_config.?.device_descriptor.serialize()});
 
                             var bw = BufferWriter{ .buffer = &S.tmp };
                             try bw.write(&usb_config.?.device_descriptor.serialize());
@@ -260,7 +263,7 @@ pub fn Usb(comptime f: anytype) type {
                             CmdEndpoint.send_cmd_response(bw.get_written_slice(), setup.length);
                         },
                         .Config => {
-                            if (S.debug_mode) std.log.info("        Config", .{});
+                            if (S.debug_mode) std.log.info("        Config desc: {X}", .{usb_config.?.config_descriptor});
 
                             var bw = BufferWriter{ .buffer = &S.tmp };
                             try bw.write(usb_config.?.config_descriptor);
@@ -268,10 +271,10 @@ pub fn Usb(comptime f: anytype) type {
                             CmdEndpoint.send_cmd_response(bw.get_written_slice(), setup.length);
                         },
                         .String => {
-                            if (S.debug_mode) std.log.info("        String", .{});
                             // String descriptor index is in bottom 8 bits of
                             // `value`.
                             const i: usize = @intCast(setup.value & 0xff);
+                            if (S.debug_mode) std.log.info("        String #{d}: {s}", .{ i, if (i == 0) "lang" else usb_config.?.descriptor_strings[i - 1] });
                             const bytes = StringBlk: {
                                 if (i == 0) {
                                     // Special index 0 requests the language
@@ -294,10 +297,12 @@ pub fn Usb(comptime f: anytype) type {
                             CmdEndpoint.send_cmd_response(bytes, setup.length);
                         },
                         .Interface => {
-                            if (S.debug_mode) std.log.info("        Interface", .{});
+                            const interface_num = @as(u8, @truncate(setup.index));
+                            if (S.debug_mode) std.log.info("        Interface #{d}", .{interface_num});
                         },
                         .Endpoint => {
-                            if (S.debug_mode) std.log.info("        Endpoint", .{});
+                            const endpoint = @as(u8, @truncate(setup.index));
+                            if (S.debug_mode) std.log.info("        Endpoint #{d}", .{endpoint});
                         },
                         .DeviceQualifier => {
                             if (S.debug_mode) std.log.info("        DeviceQualifier", .{});
@@ -359,9 +364,6 @@ pub fn Usb(comptime f: anytype) type {
 
                         bind_endpoints_to_driver(curr_bos_cfg[0..drv_cfg_len], curr_drv_idx);
                         curr_bos_cfg = curr_bos_cfg[drv_cfg_len..];
-
-                        // TODO: TMP solution - just 1 driver so quit while loop
-                        return;
                     }
                 }
 
@@ -382,12 +384,18 @@ pub fn Usb(comptime f: anytype) type {
             const InterfaceRequestProcessor = struct {
                 fn process_setup_request(setup: *const types.SetupPacket) !void {
                     const itf: u8 = @intCast(setup.index & 0xFF);
+                    if (S.debug_mode) std.log.debug("itf request #{d}", .{itf});
                     var driver = get_driver(itf_to_drv[itf]);
-                    if (driver == null) return;
+
+                    if (driver == null) {
+                        if (S.debug_mode) std.log.err("No usb driver for interface #{d}", .{itf});
+                        @panic("No usb driver for interface");
+                    }
                     S.driver = driver;
 
                     if (driver.?.class_control(.Setup, setup) == false) {
-                        // TODO
+                        if (S.debug_mode) std.log.debug("failed to handle interface request", .{});
+                        @panic("Failed to handle interface request");
                     }
                 }
             };
@@ -422,11 +430,10 @@ pub fn Usb(comptime f: anytype) type {
 
             // Events on one or more buffers? (In practice, always one.)
             if (ints.BuffStatus) {
-                if (debug) std.log.info("buff status", .{});
                 var iter = f.get_EPBIter(usb_config.?);
 
                 while (iter.next(&iter)) |epb| {
-                    if (debug) std.log.info("    data: {any}", .{epb.buffer});
+                    if (debug) std.log.debug("    data: {X}", .{epb.buffer});
 
                     // Perform any required action on the data. For OUT, the `data`
                     // will be whatever was sent by the host. For IN, it's a copy of
@@ -481,6 +488,8 @@ pub fn Usb(comptime f: anytype) type {
                         else => {
                             const ep_num = Endpoint.num_from_address(epb.endpoint_address);
                             const ep_dir = Endpoint.dir_from_address(epb.endpoint_address).as_number();
+                            if (debug) std.log.debug("    ep {d} dir {s}", .{ ep_num, @tagName(Endpoint.dir_from_address(epb.endpoint_address)) });
+
                             if (get_driver(ep_to_drv[ep_num][ep_dir])) |driver| {
                                 driver.transfer(epb.endpoint_address, epb.buffer);
                             }
@@ -517,7 +526,7 @@ pub fn Usb(comptime f: anytype) type {
 }
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++
-// Driver support stuctures
+// Driver support structures
 // +++++++++++++++++++++++++++++++++++++++++++++++++
 
 pub const DeviceConfiguration = struct {
