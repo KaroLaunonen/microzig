@@ -57,6 +57,8 @@ pub fn Usb(comptime f: anytype) type {
         var ep_to_drv: [f.cfg_max_endpoints_count][2]u8 = @splat(@splat(0));
         pub const max_packet_size = if (f.high_speed) 512 else 64;
         const drvid_invalid = 0xff;
+        const mount_callback: ?*const fn() void = f.mount_callback;
+        const unmount_callback: ?*const fn() void = f.unmount_callback;
 
         /// The callbacks passed provided by the caller
         pub const callbacks = f;
@@ -219,9 +221,9 @@ pub fn Usb(comptime f: anytype) type {
 
                                         if (cfg_num > 0) {
                                             try process_set_config(cfg_num - 1);
-                                            // TODO: call mount callback if any
+                                            if (mount_callback) |callback| callback();
                                         } else {
-                                            // TODO: call umount callback if any
+                                            if (unmount_callback) |callback| callback();
                                         }
                                     }
                                     S.cfg_num = cfg_num;
