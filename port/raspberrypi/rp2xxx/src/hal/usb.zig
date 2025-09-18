@@ -25,13 +25,16 @@ pub const UsbConfig = struct {
     // Comptime defined supported max endpoints number, can be reduced to save RAM space
     max_endpoints_count: u8 = RP2XXX_MAX_ENDPOINTS_COUNT,
     max_interfaces_count: u8 = 16,
+    enable_vbus_detect: bool = false,
+    mount_callback: ?*const fn() void = null,
+    unmount_callback: ?*const fn() void = null,
 };
 
 /// The rp2040 usb device impl
 ///
-/// We create a concrete implementaion by passing a handful
+/// We create a concrete implementation by passing a handful
 /// of system specific functions to Usb(). Those functions
-/// are used by the abstract USB impl of microzig.
+/// are used by the abstract USB impl of MicroZig.
 pub fn Usb(comptime config: UsbConfig) type {
     return usb.Usb(F(config));
 }
@@ -131,13 +134,16 @@ pub fn F(comptime config: UsbConfig) type {
         pub const cfg_max_endpoints_count: u8 = config.max_endpoints_count;
         pub const cfg_max_interfaces_count: u8 = config.max_interfaces_count;
         pub const high_speed = false;
+        pub const vbus_detect = config.enable_vbus_detect;
+        pub const mount_callback = config.mount_callback;
+        pub const unmount_callback = config.unmount_callback;
 
         var endpoints: [config.max_endpoints_count][2]HardwareEndpoint = undefined;
         var data_buffer: []u8 = rp2xxx_buffers.data_buffer;
 
         /// Initialize the USB clock to 48 MHz
         ///
-        /// This requres that the system clock has been set up before hand
+        /// This requires that the system clock has been set up before hand
         /// using the 12 MHz crystal.
         pub fn usb_init_clk() void {
             // Bring PLL_USB up to 48MHz. PLL_USB is clocked from refclk, which we've
@@ -162,7 +168,7 @@ pub fn F(comptime config: UsbConfig) type {
             // Switch usbclk to be derived from PLLUSB
             peripherals.CLOCKS.CLK_USB_CTRL.modify(.{ .AUXSRC = .clksrc_pll_usb });
 
-            // We now have the stable 48MHz reference clock required for USB:
+            // We now have the stable 48MHz reference clock required for USB
         }
 
         pub fn usb_init_device(_: *usb.DeviceConfiguration) void {
@@ -196,13 +202,12 @@ pub fn F(comptime config: UsbConfig) type {
                 .SOFTCON = 1,
             });
 
-            // Force VBUS detect. Not all RP2040 boards wire up VBUS detect, which would
+            // Configure VBUS detect. Not all RP2040 boards wire up VBUS detect, which would
             // let us detect being plugged into a host (the Pi Pico, to its credit,
-            // does). For maximum compatibility, we'll set the hardware to always
-            // pretend VBUS has been detected.
+            // does).
             peripherals.USB.USB_PWR.modify(.{
                 .VBUS_DETECT = 1,
-                .VBUS_DETECT_OVERRIDE_EN = 1,
+                .VBUS_DETECT_OVERRIDE_EN = comptime if (config.enable_vbus_detect) 1 else 0,
             });
 
             // Enable controller in device mode.
@@ -226,6 +231,8 @@ pub fn F(comptime config: UsbConfig) type {
                 .BUS_RESET = 1,
                 // We've gotten a setup request on EP0
                 .SETUP_REQ = 1,
+                .VBUS_DETECT = comptime if (config.enable_vbus_detect) 1 else 0,
+                .DEV_CONN_DIS = comptime if (config.enable_vbus_detect) 1 else 0,
             });
 
             @memset(std.mem.asBytes(&endpoints), 0);
@@ -311,7 +318,7 @@ pub fn F(comptime config: UsbConfig) type {
                 .PID_0 = np, // DATA0/1 depending
                 .FULL_0 = 0, // Buffer is NOT full, we want the computer to fill it
                 .AVAILABLE_0 = 1, // It is, however, available to be filled
-                .LENGTH_0 = @as(u10, @intCast(len)), // Up tho this many bytes
+                .LENGTH_0 = @as(u10, @intCast(len)), // Up to this many bytes
             });
 
             // Flip the DATA0/1 PID for the next receive
@@ -343,7 +350,7 @@ pub fn F(comptime config: UsbConfig) type {
         /// Side effect: The setup request status flag will be cleared
         ///
         /// One can assume that this function is only called if the
-        /// setup request falg is set.
+        /// setup request flag is set.
         pub fn get_setup_packet() usb.types.SetupPacket {
             // Clear the status flag (write-one-to-clear)
             peripherals.USB.SIE_STATUS.modify(.{ .SETUP_REC = 1 });

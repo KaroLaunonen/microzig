@@ -154,6 +154,10 @@ pub const ReportType = enum(u8) {
     Input = 1,
     Output = 2,
     Feature = 3,
+
+    pub fn from_u8(v: u8) ?@This() {
+        return std.meta.intToEnum(@This(), v) catch null;
+    }
 };
 
 /// HID country codes
@@ -256,6 +260,7 @@ pub const UsageTable = struct {
     pub const desktop: [1]u8 = "\x01".*;
     pub const keyboard: [1]u8 = "\x07".*;
     pub const led: [1]u8 = "\x08".*;
+    pub const button: [1]u8 = "\x09".*;
     pub const fido: [2]u8 = "\xD0\xF1".*;
     pub const vendor: [2]u8 = "\x00\xFF".*;
 };
@@ -268,6 +273,10 @@ pub const FidoAllianceUsage = struct {
 
 pub const DesktopUsage = struct {
     pub const keyboard: [1]u8 = "\x06".*;
+    pub const joystick: [1]u8 = "\x04".*;
+    pub const x_axis: [1]u8 = "\x30".*;
+    pub const y_axis: [1]u8 = "\x31".*;
+    pub const z_axis: [1]u8 = "\x32".*;
 };
 
 pub const HID_DATA: u8 = 0 << 0;
@@ -388,6 +397,24 @@ pub fn hid_logical_max(comptime n: u2, data: [n]u8) [n + 1]u8 {
     );
 }
 
+pub fn hid_physical_min(comptime n: u2, data: [n]u8) [n + 1]u8 {
+    return hid_report_item(
+        n,
+        @intFromEnum(ReportItemTypes.Global),
+        @intFromEnum(GlobalItem.PhysicalMin),
+        data,
+    );
+}
+
+pub fn hid_physical_max(comptime n: u2, data: [n]u8) [n + 1]u8 {
+    return hid_report_item(
+        n,
+        @intFromEnum(ReportItemTypes.Global),
+        @intFromEnum(GlobalItem.PhysicalMax),
+        data,
+    );
+}
+
 pub fn hid_report_size(comptime n: u2, data: [n]u8) [n + 1]u8 {
     return hid_report_item(
         n,
@@ -404,6 +431,10 @@ pub fn hid_report_count(comptime n: u2, data: [n]u8) [n + 1]u8 {
         @intFromEnum(GlobalItem.ReportCount),
         data,
     );
+}
+
+pub fn hid_report_id(comptime n: u2, data: [n]u8) [n + 1]u8 {
+    return hid_report_item(n, @intFromEnum(ReportItemTypes.Global), @intFromEnum(GlobalItem.ReportId), data);
 }
 
 // Local Items
@@ -528,6 +559,8 @@ pub const HidClassDriver = struct {
     ep_out: u8 = 0,
     hid_descriptor: []const u8 = &.{},
     report_descriptor: []const u8,
+    get_report_callback: ?*const fn(interface: u8) void = null,
+    set_report_callback: ?*const fn(interface: u8, report_type: ReportType, report_id: u8, length: u16) void = null,
 
     fn init(ptr: *anyopaque, device: types.UsbDevice) void {
         var self: *HidClassDriver = @ptrCast(@alignCast(ptr));
@@ -621,14 +654,22 @@ pub const HidClassDriver = struct {
                         }
                     },
                     .SetReport => {
-                        if (stage == .Setup) {
-                            // TODO: This request sends a feature or output report to the device,
-                            // e.g. turning on the caps lock LED. This must be handled in an
-                            // application-specific way, so notify the application code of the event.
-                            //
-                            // https://github.com/ZigEmbeddedGroup/microzig/issues/454
-                            self.device.?.control_ack(setup);
+                        std.log.debug("SetReport request, value: 0x{X}", .{setup.value});
+                        if (self.set_report_callback) |callback| {
+                            const maybe_report_type = ReportType.from_u8(@intCast((setup.value >> 8) & 0xFF));
+
+                            if (maybe_report_type) |report_type| {
+                                callback(@intCast(setup.index & 0xFF), report_type, @intCast(setup.value & 0xFF), setup.length);
+                            }
                         }
+                        self.device.?.control_ack(setup);
+                    },
+                    .GetReport => {
+                        const report_type = ReportType.from_u8(@intCast((setup.value >> 8) & 0xFF)) orelse return false;
+                        const report_id = setup.value & 0xFF;
+
+                        if (self.get_report_callback) |callback| callback(@intCast(setup.index & 0xFF));
+                        std.log.debug("  GetReport type: {s}, report id: {d}", .{@tagName(report_type), report_id});
                     },
                     else => {
                         return false;
